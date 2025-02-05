@@ -1,4 +1,4 @@
-# HyperBind (Open-Source Edition)
+# HyperBind2 (Open-Source Edition)
 
 Welcome to HyperBind—an open-source deep learning framework for antibody design and binding affinity prediction, originally developed at EVQLV and adapted here for a broader research community. This repository contains a scaled-down version of our internal platform, focusing on demonstrating workflow concepts, data handling, and the integration of modern protein language models (e.g., ProtBert from ProtTrans5).
 
