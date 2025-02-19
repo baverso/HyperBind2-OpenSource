@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-import esm  # Make sure you have cloned the ESM repository and installed its requirements
+import esm 
+
 
 
 # Define a classifier model that wraps ESM-3 and adds a classifier head.
