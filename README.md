@@ -1,4 +1,4 @@
-# HyperBind2 (Open-Source Edition with ESM3)
+# HyperBind2 (Open-Source Edition)
 
 Welcome to **HyperBind2**—an open-source deep learning framework for antibody design and binding affinity prediction, originally developed at **EVQLV** and adapted here for broader research use. This repository provides an accessible, scaled-down version of our internal platform, integrating **state-of-the-art protein language models** for antibody sequence embeddings.
 
