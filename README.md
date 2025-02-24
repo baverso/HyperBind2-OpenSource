@@ -2,17 +2,48 @@
 
 Welcome to **HyperBind2**—an open-source deep learning framework for antibody design and binding affinity prediction, originally developed at **EVQLV** and adapted here for broader research use. This repository provides an accessible, scaled-down version of our internal platform, integrating **state-of-the-art protein language models** for antibody sequence embeddings.
 
-## 🏆 Built with ESM3  
-This open-source model leverages **ESM3**, a protein language model from EvolutionaryScale, for **state-of-the-art sequence and structure prediction**.  
+---
 
-> **Attribution:**  
-> This model is a derivative of the **ESM3** model provided by EvolutionaryScale, licensed under the **EvolutionaryScale Cambrian Non-Commercial License Agreement**.
+## 🌟 Overview  
 
-## ⚠️ About Our Internal Commercial Model  
-While this open-source release demonstrates key concepts, **our commercial antibody AI model is separate** from ESM3 and **is not a derivative** of it.  
-- Our **internal proprietary model** is a **custom antibody transformer**, uniquely trained on **EVQLV's proprietary antibody datasets**.
-- **ESM3 is used only in this open-source version** to provide a strong baseline for non-commercial research.
-- The **internal commercial version includes structure-based embeddings and additional enhancements** not present here.
+**HyperBind2** provides a deep learning framework for **antibody design and binding affinity prediction**.  
+- This open-source version utilizes **ESM3 (Open-Source Edition: esm3-open-2024-03)**, the open 1.4B-parameter model, to generate **antibody sequence embeddings**.
+- We demonstrate **fine-tuning** for antibody **heavy-light chain pair prediction** and leverage **contrastive learning** for robust representation learning:
+  - **Contrastive Learning Explained:**  
+    It teaches the model to distinguish between similar and dissimilar examples by learning from both positive and negative pairs. This process helps the model form a more nuanced and robust representation of antibody features.
+  - **Small-Scale Advantage:**  
+    Contrastive learning excels with small-scale scientific datasets—a common scenario in antibody research—by maximizing the informative signal from limited data.
+- This release provides **an end-to-end workflow** featuring a streamlined, small version of our contrastive learning head while omitting proprietary components. Notably, we do not incorporate the mixture-of-experts approach used in our internal regression and classifier heads, underscoring that our open-source version is fundamentally different from our commercial system. Also our **custom transformer architectures** is substituted with ESM3 Open-Source Edition. 
+
+> **Why ESM3 as the Encoder?**  
+> ESM3 is currently the **leading BERT-based protein language model for sequence and structure prediction**, making it an ideal choice for open-source research.
+
+## 🏆 Built with ESM3
+
+This open-source model uses **ESM3 (Open-Source Edition: esm3-open-2024-03)**, the open 1.4B-parameter model from EvolutionaryScale, as its backbone for **state-of-the-art sequence and structure prediction**. By fine-tuning ESM3 on **antibody structures**, we enhance performance in structure-based learning for our open-source model, **HyperBind2**.
+
+> **Attribution**  
+> This model is derived from the **ESM3** model by EvolutionaryScale, licensed under the **EvolutionaryScale Cambrian Non-Commercial License Agreement**.  
+> [ESM3 GitHub Repository](https://github.com/evolutionaryscale/esm)
+
+---
+
+### Risk Mitigation and Responsible Use
+
+- **Data Filtering**: The original ESM3-open release excludes viral and toxin sequences as a precaution, reducing misuse risks.  
+- **Local Regulations**: Please respect all community standards and legal requirements in synthetic biology or medical research.  
+- **Intended Use**: This fine-tuned model is offered for **non-commercial** research and education. Note that we have only fine-tuned on antibodies—not viral proteins.
+
+## ⚠️ About Our Internal Commercial Model
+
+While this open-source release demonstrates key concepts, please note that **our commercial antibody AI model is entirely separate from ESM3 and is not a derivative of it**. Here’s what we can share about our proprietary antibody transformer:
+
+- Our **internal model** is a **custom-built antibody transformer**, exclusively trained on **EVQLV's proprietary antibody datasets**.
+- It leverages a **Mixture of Experts (MoE) approach** combined with a custom Transformer architecture tailored specifically for positional embeddings critical to antibody modeling, ensuring **CDR-sensitive sequence and structure understanding**.
+
+These innovations empower our commercial solution to capture the complex nuances of antibody variable regions, delivering state-of-the-art performance in antibody design and analysis. To learn more about our commercial team and explore collaboration opportunities on discovery and optimization projects, please visit [evqlv.com](https://evqlv.com) and get in touch!
+
+---
 
 ## 📌 Table of Contents
 - [Overview](#overview)
@@ -30,36 +61,23 @@ While this open-source release demonstrates key concepts, **our commercial antib
 
 ---
 
-## 🌟 Overview  
-
-**HyperBind2** provides a deep learning framework for **antibody design and binding affinity prediction**.  
-- This open-source version utilizes **ESM3 (Open-Source)** to generate **antibody sequence embeddings**.
-- We demonstrate **fine-tuning** for antibody **heavy-light chain pair prediction** using contrastive learning.
-- This release provides **an end-to-end workflow** while omitting proprietary components (e.g., **custom transformer architectures** and **structure-based embeddings** used internally).
-
-### ✅ Key Tasks Supported:
-- **Binder vs. Non-Binder Classification**
-- **Preliminary Affinity Ranking**
-- **Exploring antibody–antigen modeling**
-
-> **Why ESM3?**  
-> ESM3 is currently the **leading BERT-based protein language model for sequence and structure prediction**, making it an ideal choice for open-source research.
-
----
-
 ## 🚀 Features
-- **ESM3 (Open-Source Edition)** for **high-quality protein sequence embeddings**
-- **PyTorch & LoRA support** for efficient fine-tuning
+- **ESM3 (Open-Source Edition: esm3-open-2024-03)** for **high-quality protein sequence embeddings**
+- **PyTorch & PeFT (using LORA) support** for efficient fine-tuning  
+  Our framework integrates the latest from [PEFT](https://github.com/huggingface/peft) with LoRA to streamline the fine-tuning process while reducing the number of trainable parameters.
 - **Paired heavy-light chain input support** (real-world antibody data)
-- **Two Sample Datasets Included**:
+- **Contrastive Learning:**  
+  - **Intuitive Explanation:**  
+    Contrastive learning teaches the model to differentiate similar from dissimilar pairs by leveraging both positive and negative examples, which builds a robust internal representation of antibody features.
+  - **Small-Scale Advantage:**  
+    This method is especially effective with small-scale scientific datasets—typical in antibody research—maximizing the use of limited data.
+- **Two Sample Datasets Included:**
   - **Real World Training Data** (anonymized heavy-light chain pairs, minimal labels)
   - **Synthetic Dataset** (Absolut! dataset from Greiff Lab)
 - Example scripts for:
   - **Data preprocessing**
   - **Fine-tuning**
   - **Inference/prediction**
-
----
 
 ## 📂 What’s Inside?
 
