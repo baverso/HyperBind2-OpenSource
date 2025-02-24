@@ -177,6 +177,140 @@ Outputs a **binding probability score** per sequence pair.
    - The **real-world dataset is anonymized** and **reduced in scope** compared to internal training data.
 
 ---
+# Contrastive Learning Model Head with Structural Embeddings
+
+The contrastive learning component of **HyperBind2** is designed to fine-tune representations of **multimerized antibody sequences**—a concatenation of the **heavy chain**, **light chain**, and **antigen**. Each chain is first transformed using **ESM3-like embeddings**, capturing both sequence and predicted structural features (e.g., residue-level contexts, secondary structure, and long-range attention signals). These embeddings serve as the foundation for a **contrastive learning** model head that differentiates higher vs. lower binding affinity in a pairwise context.
+
+---
+
+## What is Contrastive Learning?
+
+Contrastive learning encourages the model to learn rich, discriminative features by contrasting pairs of sequences. Rather than predicting an absolute binding value, the model compares two sequences and determines which one exhibits the higher affinity. This process is typically more data-efficient than traditional supervised methods when data is limited.
+
+**Key Principles**:
+1. **Positive/Negative Pairing**: For any given pair of antibody clones $(x_i, x_j)$, the model attempts to push together the representations of sequences that have higher affinity and push apart those that do not.  
+2. **Relative Comparison**: The model focuses on *relative* differences between sequences under the context of a given antigen, which is especially helpful in scientific scenarios where absolute labels may be noisy or limited.
+
+A common formulation of contrastive learning uses an **InfoNCE**-style objective, where the network is asked to maximize the log-likelihood of correctly identifying a positive pair among a set of negatives. While HyperBind2 simplifies this concept into a binary classification problem (“higher vs. lower” affinity), the underlying philosophy remains similar—**learn robust embeddings through explicit comparisons**.
+
+---
+
+## Architecture and Hidden Layers
+
+### Multimerized Input Assembly
+
+1. **Embeddings**  
+   - **Heavy Chain**, **Light Chain**, and **Antigen** each produce high-dimensional embeddings that incorporate:
+     - **Residue-level context** (e.g., local and global sequence information).
+     - **Predicted structural cues** (e.g., secondary structure, angles, side chain orientations, distances, and contact maps).
+     - **Attention-based contact patterns** (long-range dependencies).
+
+2. **Concatenation**  
+   - These three embeddings are **concatenated** into a single “multimerized” representation, capturing interactions across the entire antibody-antigen complex.
+
+### Base Architecture
+
+The architecture can be visualized as follows:
+```
+[ Heavy Embedding ]   [ Light Embedding ]   [ Antigen Embedding ]
+↓                    ↓                       ↓
+Dropout → Dense(4) → Flatten         (repeat for each chain)
+↓                    ↓                       ↓
+–––– Concatenate all three flattened vectors ––––
+↓
+┌──────────────────────────────────────────────────────────┐
+│        Block 1 → Dropout → Dense(256, ReLU) → Norm      │
+│        Block 2 → Dropout → Dense(128, ReLU) → Residual  │
+│        Block 3 → Dropout → Dense(64,  ReLU) → Norm      │
+└──────────────────────────────────────────────────────────┘
+↓
+Dropout → Dense(2, Softmax)
+↓
+Probability (Higher/Lower)
+```
+1. **Dimension Reduction and Feature Flattening**:  
+   - Each embedded chain passes through:
+     - A **dropout layer** (e.g., 10–20%).
+     - A **dense layer** (4 units, ReLU) to reduce dimensionality.
+     - **Flatten** to form a compact vector.
+2. **Joint Representation**:  
+   - The three flattened vectors (heavy, light, antigen) are concatenated.
+3. **Intermediate Processing**:  
+   - The concatenated vector is fed into another **dropout layer** and a **dense layer** with 256 units (ReLU activation).
+4. **Final Classification**:  
+   - A **dropout** is applied before a **dense layer** with 2 units and softmax activation, yielding a probability distribution indicating higher vs. lower affinity.
+
+By stacking multiple feed-forward blocks (each with dropout, ReLU, and optional residual or normalization layers), the network gains additional capacity to model complex antibody-antigen interactions.
+
+---
+
+## Loss (Objective) Functions
+
+### Binary Classification Setting
+
+Because HyperBind2’s contrastive learning is operationalized as a *binary classification* (higher vs. lower affinity), the objective function is the **sparse categorical cross-entropy**:
+
+$$
+\mathcal{L}(\theta) = -\frac{1}{N} \sum_{i=1}^{N} \sum_{c=1}^{C} y_{i,c} \log \Big(p_{i,c}(x_i; \theta)\Big)
+$$
+
+- $(N)$: Number of training examples  
+- $(C)$: Number of classes (2: higher or lower)  
+- $(y_{i,c})$: One-hot encoded label for example $(i)$ in class $(c)$  
+- $(p_{i,c})$: Predicted probability of class \(c\) for example \(i\) given parameters \(\theta\)
+
+### Pairwise Contrastive Formulation (Alternate View)
+
+For certain tasks, you might adopt a margin-based or InfoNCE-like formulation. A simplified variant is:
+
+$$
+\mathcal{L}_{\text{contrast}}(\theta) = \sum_{(i,j)\in P} \max \Big(0,\; m - \big(f_{\theta}(x_i) - f_{\theta}(x_j)\big)\Big)
+$$
+
+where $(i,j)$ in $P$ denotes pairs of sequences known to have a relative difference, $(m)$ is a margin constant, and $(f_{(\theta)}(x))$ is the model’s scoring function. However, in HyperBind2’s open-source release, we stick to the cross-entropy classification approach as described above.
+
+---
+
+## Optimization Methods
+
+1. **Adam Optimizer**  
+   - Adaptive learning rate and momentum help navigate the potentially noisy high-dimensional space common in protein models.  
+
+2. **Dropout and Batch Management**  
+   - Dropout layers scattered throughout the network mitigate overfitting.  
+
+3. **Parameter-Efficient Fine-Tuning (PEFT)**  
+   - To fine-tune large models efficiently, we leverage **PEFT techniques** such as **LoRA, AdaLoRA, and Prefix Tuning**.  
+   - **LoRA (Low-Rank Adaptation)** injects lightweight trainable matrices into attention layers, reducing computational costs while maintaining performance.  
+   - PEFT allows **targeted fine-tuning** of antibody models while preserving the base model’s pre-trained knowledge.  
+   - **Repo:** [PEFT GitHub](https://github.com/huggingface/peft)  
+   - With a set of baseline $(K_D$ values, one can combine pairwise predictions using a softmax-weighted average in the log scale, producing a final $(K_D)$ estimate.
+
+---
+
+## Benchmark Methods and Evaluation
+
+1. **KD Metric Calculation**  
+   - Rather than directly predicting absolute affinity, the model outputs a probability distribution over which sequence in a pair has higher affinity.  
+
+where \(z_i\) are the network logits associated with each baseline.
+
+2. **Performance Metrics**  
+   - **Log-Scale Absolute Error (\(\Delta\log_{10} KD\))** compares the model’s predicted KD values to reference data.  
+   - **Classification Accuracy** measures the binary correctness (higher vs. lower) in pairwise comparisons.
+
+3. **Hyperparameter Settings**  
+   - Typical dropout rates: **10–20%**  
+   - Intermediate dense layers: **4 → 256 → 128 (optionally deeper)**  
+   - Use of **softmax** at the final layer for probability distributions.
+
+---
+
+## Summary
+
+By integrating **structural embeddings** with a **multimerized sequence representation** (heavy chain, light chain, antigen) and applying a **contrastive learning** approach, HyperBind2’s model head robustly classifies relative affinities. This combination of **rich embeddings**, **contrastive objectives**, and **carefully tuned feed-forward blocks** has proven effective for small-scale, high-value antibody design problems.
+
+---
 
 ## 🤝 Contributing  
 
