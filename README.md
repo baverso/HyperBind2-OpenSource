@@ -105,6 +105,21 @@ HyperBind2/
 - `train.py`: Runs a simplified **training loop** for antibody sequence ranking.
 - `data_preprocess.py`: **Tokenizes** antibody sequences for ESM3 embedding.
 
+### Tested Environments & Prerequisites
+
+HyperBind2 (Open-Source Edition) was developed and tested on the following configurations:
+
+- **Operating System**: Ubuntu 20.04 / 22.04 (Linux)
+- **Python Version**: 3.9
+- **CUDA Version**: 11.6
+- **cuDNN Version**: 8.x
+
+Other configurations (e.g., Windows 10/11 with a compatible NVIDIA GPU) may also work but are not officially tested.  
+A GPU with at least **16GB of VRAM** is recommended for smaller-scale experiments, though larger memory (e.g., 24GB or more) will significantly improve training throughput. For CPU-only operation, you can run certain scripts (like data preprocessing), but training and inference will be very slow without GPU acceleration.
+
+Make sure you install the dependencies listed in [`requirements.txt`](./requirements.txt) or create a dedicated Conda/virtual environment that matches the versions we specify. Having a compatible version of **PyTorch** (>= 1.12.0) with CUDA support is crucial for model training.
+
+
 ---
 
 ## 🔧 Installation
@@ -131,6 +146,33 @@ HyperBind2/
 
 ## 📊 Usage  
 
+## Data Availability & Instructions
+
+This repository references two primary datasets:
+
+1. **Real-World Antibody Data**  
+   - Anonymized heavy-light chain pairs stored under `data/real_world/`.
+   - Minimal binding labels are included for demonstration purposes.
+   - **Download Link**: [Placeholder Link]  
+     *(Replace this with the actual URL or instructions. For instance, if you're hosting on Zenodo, insert the Zenodo link here. E.g., “Download from [Zenodo link].”)*
+
+2. **Synthetic Dataset (Absolut! from Greiff Lab)**  
+   - Synthetic antibody sequences stored under `data/synthetic/`.
+   - **Download Link**: [Placeholder Link]  
+     *(Again, replace with your actual link or repository reference.)*
+
+**How to Use These Datasets**  
+1. **Download** the dataset archives (or individual files) from the placeholder links.  
+2. **Unzip/Extract** them into the `data/real_world/` and `data/synthetic/` directories, respectively.  
+3. **Run** the data preprocessing script:
+    ```bash
+    python scripts/data_preprocess.py --data_dir data/real_world
+    ```
+   This will tokenize and format sequences for model training.
+
+If you have your own data, simply place the FASTA or CSV files into a new directory (e.g., `data/custom/`) and run the same preprocessing command with the appropriate path.
+
+
 ### 🗄️ Data Preparation  
 
 1. **Download the Provided Data**:
@@ -154,6 +196,48 @@ HyperBind2/
    - Training logs print metrics (accuracy, loss).
    - Add **TensorBoard support** for deeper visualization.
 
+
+## Fine-Tuning Train with with LoRA (PEFT)
+
+HyperBind2 leverages [PEFT](https://github.com/huggingface/peft) for parameter-efficient fine-tuning of large models like ESM3. Specifically, we use **LoRA** (Low-Rank Adaptation) to train small rank-decomposition matrices while keeping the rest of ESM3’s weights frozen.
+
+### Why LoRA?
+- **Reduced Memory Footprint**: Only a fraction of the total parameters are updated.
+- **Faster Training**: Training is significantly quicker compared to full fine-tuning of 1.4B+ parameters.
+- **Modular**: It’s easy to swap out with other PEFT strategies (e.g., Prefix Tuning, Adapter methods) if desired.
+
+### High-Level Setup
+1. **Load Pre-Trained ESM3**:  
+   We first load the base ESM3 (Open-Source Edition: esm3-open-2024-03).  
+2. **Apply LoRA Configuration**:
+  \
+  You can tweak LoRA hyperparameters (rank, alpha, etc.) in the config file or within the script. 
+
+   ```python
+   from peft import LoraConfig, get_peft_model
+
+   lora_config = LoraConfig(
+       r=8,                 # rank
+       lora_alpha=16,       # scaling factor
+       lora_dropout=0.1,    # dropout on the LoRA layers
+       target_modules=["..."]  # define which layers to inject LoRA
+   )
+
+   # "base_model" is the loaded ESM3 model
+   peft_model = get_peft_model(base_model, lora_config)
+
+3. Run inference with LoRA as follows:
+    ```
+    python scripts/train.py \
+      --train_dir data/real_world \
+      --epochs 5 \
+      --batch_size 16 \
+      --use_peft lora \
+      --peft_config configs/lora_config.json
+    ```
+> **Note**: Adjust the exact LoRA arguments, file paths, or script references based on your project’s structure.
+
+
 ### 🔍 Inference / Prediction  
 
 Run predictions on new sequences:
@@ -167,8 +251,9 @@ Outputs a **binding probability score** per sequence pair.
 ## ⚠️ Limitations
 
 1. **No Proprietary Model Weights**  
-   - This repository does **not include** our **internal commercial model weights**.
-   - Users must train on provided sample data.
+   - This repository does **not include** our **internal commercial model weights** for the contrastive head model.
+   - Users must train the contrastive head on provided sample data.
+   - *Note we **do** provide encoder weights based on finetuned ESM3 Open Source, finetuned for antibody sequence and antibody structure.*
 
 2. **Scaled-Down Architecture**  
    - **Our internal model integrates advanced antibody-specific transformers** & **structure-based embeddings** not included in this release.
@@ -177,6 +262,23 @@ Outputs a **binding probability score** per sequence pair.
    - The **real-world dataset is anonymized** and **reduced in scope** compared to internal training data.
 
 ---
+## Hardware & Performance Notes
+
+- **Training**:
+  - Our internal benchmarks were conducted on **8× NVIDIA A100 80GB GPUs**, allowing us to fine-tune the ESM3-based model in parallel with ample memory.
+  - On smaller setups (e.g., a single GPU with 16GB VRAM), training is still possible but will be slower. You may need to reduce batch sizes or sequence lengths.
+  - Expect training times for our sample dataset to vary from a few hours to a day, depending on batch size, sequence length, and GPU capability.
+
+- **Inference**:
+  - We demonstrated inference on **2× NVIDIA V100 (16GB)** GPUs for smaller datasets. Inference can be done on a single GPU if the batch size is kept low.
+  - Typical inference times on a single V100 for a batch of ~100 sequences range from several seconds to a minute, depending on model settings.
+
+- **Memory Considerations**:
+  - ESM3 (1.4B parameters) is large; using **LoRA** or other PEFT methods is essential for reducing the memory footprint during training.
+  - For best results on large-scale datasets, multi-GPU setups are recommended.
+
+---
+
 # Contrastive Learning Model Head with Structural Embeddings
 
 The contrastive learning component of **HyperBind2** is designed to fine-tune representations of **multimerized antibody sequences**—a concatenation of the **heavy chain**, **light chain**, and **antigen**. Each chain is first transformed using **ESM3-like embeddings**, capturing both sequence and predicted structural features (e.g., residue-level contexts, secondary structure, and long-range attention signals). These embeddings serve as the foundation for a **contrastive learning** model head that differentiates higher vs. lower binding affinity in a pairwise context.
@@ -263,9 +365,7 @@ $$
 
 For certain tasks, you might adopt a margin-based or InfoNCE-like formulation. A simplified variant is:
 
-$$
-\mathcal{L}_{\text{contrast}}(\theta) = \sum_{(i,j)\in P} \max \Big(0,\; m - \big(f_{\theta}(x_i) - f_{\theta}(x_j)\big)\Big)
-$$
+![Contrastive Loss](https://latex.codecogs.com/svg.latex?\mathcal{L}_{\text{contrast}}(\theta)%20=%20\sum_{(i,j)\in%20P}%20\max%20\Big(0,%20m%20-%20\big(f_{\theta}(x_i)%20-%20f_{\theta}(x_j)\big)\Big))
 
 where $(i,j)$ in $P$ denotes pairs of sequences known to have a relative difference, $(m)$ is a margin constant, and $(f_{(\theta)}(x))$ is the model’s scoring function. However, in HyperBind2’s open-source release, we stick to the cross-entropy classification approach as described above.
 
