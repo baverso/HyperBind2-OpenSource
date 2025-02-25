@@ -425,9 +425,8 @@ For feature requests related to our **full HyperBind pipeline**, open an issue�
 
 ## 📜 License  
 
-Distributed under the **Apache 2.0 License**.  
+Distributed under the **GPL 3.0 License**.  
 See `LICENSE` for details.
-
 ---
 
 ## 🎓 Acknowledgments  
