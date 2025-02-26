@@ -1,0 +1,69 @@
+version: 2.1
+
+# Define the jobs we want to run for this project
+jobs:
+  build-and-test:
+    machine:
+      image: ubuntu-2204:current
+      docker_layer_caching: true
+    
+    resource_class: medium
+    
+    steps:
+      - checkout
+      
+      # Display Docker and environment information
+      - run:
+          name: Display Docker and environment information
+          command: |
+            docker --version
+            docker info
+            nvidia-smi || echo "NVIDIA drivers not available in this environment"
+      
+      # Build the Docker image
+      - run:
+          name: Build Docker image
+          command: |
+            echo "Building Docker image..."
+            docker build -t myproject:${CIRCLE_SHA1} .
+      
+      # Log in to Docker Hub if needed
+      # - run:
+      #     name: Log in to Docker Hub
+      #     command: |
+      #       echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      
+      # Run basic tests inside the container
+      - run:
+          name: Run basic tests
+          command: |
+            echo "Running basic tests..."
+            docker run --rm myproject:${CIRCLE_SHA1} python -c "
+            import numpy
+            import pandas
+            import torch
+            print('NumPy version:', numpy.__version__)
+            print('Pandas version:', pandas.__version__)
+            print('PyTorch version:', torch.__version__)
+            print('CUDA available:', torch.cuda.is_available())
+            print('Basic imports successful!')
+            "
+      
+      # Push to Docker Hub if on main branch and tests passed
+      # - run:
+      #     name: Push to Docker Hub
+      #     command: |
+      #       if [ "${CIRCLE_BRANCH}" == "main" ]; then
+      #         echo "Pushing to Docker Hub..."
+      #         docker tag myproject:${CIRCLE_SHA1} $DOCKERHUB_USERNAME/myproject:latest
+      #         docker push $DOCKERHUB_USERNAME/myproject:latest
+      #       else
+      #         echo "Not on main branch, skipping Docker Hub push"
+      #       fi
+
+# Define the workflow
+workflows:
+  version: 2
+  build-test-deploy:
+    jobs:
+      - build-and-test
