@@ -435,7 +435,7 @@ See `LICENSE` for details.
 - **Greiff Lab’s Absolut! dataset** for synthetic antibodies.  
 - **EVQLV team** for discussions and dataset preparation.
 
-> **Note:** This open-source edition is **for research use only** and is **not intended for clinical or commercial deployment** without further validation.
+> **Note:** This open-source edition is **for research use only** and is **not intended for commercial deployment** without further training and validation.
 
 ---
 
