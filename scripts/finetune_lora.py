@@ -778,19 +778,19 @@ def main() -> None:
         "/home/jupyter/DATA/hyperbind_train/sabdab/all_structures/processed/trimmed"
     )
     checkpoint_dir = "/home/jupyter/DATA/esm_finetuning/checkpoints"
-    lora_checkpoints_dir = "/home/jupyter/DATA/esm_finetuning/lora_checkpoints"
+    lora_checkpoints_dir = "/home/jupyter/DATA/esm_finetuning/new_lora_checkpoints_03_10"
 
     # Training parameters
-    batch_size = 32
+    batch_size = 16  # Reduced to help with memory issues
     num_epochs = 5
-    learning_rate = 1e-4
-    weight_decay = 1e-5
+    learning_rate = 5e-5  # Reduced to stabilize training
+    weight_decay = 1e-6
     num_workers = 4
 
     # LoRA parameters
-    lora_rank = 16
-    lora_alpha = 32
-    lora_dropout = 0.1
+    lora_rank = 8  # Reduced rank for more stability
+    lora_alpha = 16  # Reduced alpha to match rank
+    lora_dropout = 0.05  # Lower dropout for stability
 
     # Ensure dirs exist
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -810,20 +810,38 @@ def main() -> None:
     for param in model.parameters():
         param.requires_grad = False
 
-    # 3) Apply LoRA to attention + geometric reasoning in the first two blocks
+    # 3) Apply LoRA to strategic layers for structure prediction
     target_modules = [
-        # Block 0 MHA
-        "transformer.blocks.0.attn.layernorm_qkv.1",
-        "transformer.blocks.0.attn.out_proj",
-        # Block 1 MHA
-        "transformer.blocks.1.attn.layernorm_qkv.1",
-        "transformer.blocks.1.attn.out_proj",
-        # Block 0 geometric attention
-        "transformer.blocks.0.geom_attn.proj",
-        "transformer.blocks.0.geom_attn.out_proj",
-        # Block 1 geometric attention
-        "transformer.blocks.1.geom_attn.proj",
-        "transformer.blocks.1.geom_attn.out_proj",
+        # Structure-focused output heads
+        "output_heads.structure_head.0",  # First linear in structure head
+        "output_heads.structure_head.3",  # Final projection in structure head
+
+        # Structure decoder components
+        "_structure_decoder.affine_output_projection.ffn1",
+        "_structure_decoder.affine_output_projection.proj",
+        "_structure_decoder.pairwise_classification_head.linear2",
+        "_structure_decoder.plddt_head.dense",
+        "_structure_decoder.plddt_head.output",
+
+        # Late transformer blocks (higher-level reasoning)
+        "transformer.blocks.45.attn.layernorm_qkv.1",
+        "transformer.blocks.45.attn.out_proj",
+        "transformer.blocks.46.attn.layernorm_qkv.1",
+        "transformer.blocks.46.attn.out_proj",
+        "transformer.blocks.47.attn.layernorm_qkv.1",
+        "transformer.blocks.47.attn.out_proj",
+
+        # Add some FFN components in critical blocks
+        "transformer.blocks.45.ffn.1",
+        "transformer.blocks.45.ffn.3",
+        "transformer.blocks.47.ffn.1",
+        "transformer.blocks.47.ffn.3",
+
+        # Structure decoder transformer blocks
+        "_structure_decoder.decoder_stack.blocks.28.attn.layernorm_qkv.1",
+        "_structure_decoder.decoder_stack.blocks.28.attn.out_proj",
+        "_structure_decoder.decoder_stack.blocks.29.attn.layernorm_qkv.1",
+        "_structure_decoder.decoder_stack.blocks.29.attn.out_proj",
     ]
 
     print(f"Applying LoRA to {len(target_modules)} modules...")
@@ -850,20 +868,25 @@ def main() -> None:
     # Move model to device
     model.to(device)
 
-    # Create dataset
+    # Create dataset with a validation strategy
+    print("Creating and preparing dataset...")
     dataset = AntibodyDataset(pdb_directory)
 
-    # Split dataset
-    train_size = int(0.8 * len(dataset))
+    # Split dataset with more validation data for better evaluation
+    val_fraction = 0.2  # 20% validation
+    train_size = int((1 - val_fraction) * len(dataset))
     val_size = len(dataset) - train_size
+
+    # Use a fixed seed for reproducibility
+    generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = random_split(
-        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
+        dataset, [train_size, val_size], generator=generator
     )
 
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(val_dataset)}")
 
-    # Dataloaders
+    # Dataloaders with careful settings
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -871,7 +894,9 @@ def main() -> None:
         collate_fn=custom_collate_fn,
         num_workers=num_workers,
         pin_memory=True,
+        drop_last=False,  # Keep all examples
     )
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -881,17 +906,36 @@ def main() -> None:
         pin_memory=True,
     )
 
-    # Optimizer (only LoRA params require_grad)
-    optimizer = optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad],
-        lr=learning_rate,
-        weight_decay=weight_decay,
-    )
+    # Optimizer with specific settings for LoRA
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
 
-    # Loss + scheduler
-    loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
+    decay_params = []
+    no_decay_params = []
+
+    for param in trainable_params:
+        if len(param.shape) <= 1:  # Bias and LayerNorm parameters
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    param_groups = [
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+    optimizer = optim.AdamW(param_groups, lr=learning_rate)
+
+    # Loss function for structure prediction
+    loss_fn = nn.CrossEntropyLoss(ignore_index=-100, label_smoothing=0.1)
+
+    # LR scheduler with patience and monitoring
     scheduler = ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, verbose=True
+        optimizer,
+        mode="min",
+        factor=0.6,
+        patience=2,
+        verbose=True,
+        min_lr=1e-6,
     )
 
     # (Optional) Resume from a previous LoRA checkpoint
@@ -901,12 +945,14 @@ def main() -> None:
     train_losses, val_losses = [], []
 
     if resume_training and os.path.exists(resume_checkpoint):
+        print(f"Resuming training from {resume_checkpoint}")
         start_epoch, train_losses, val_losses = load_checkpoint(
             model, optimizer, scheduler, resume_checkpoint
         )
 
     # Train the model
     try:
+        print("\n--- Starting Training with Structure-Focused LoRA ---\n")
         train_losses, val_losses = train_model(
             model,
             train_loader,
@@ -922,25 +968,64 @@ def main() -> None:
             val_losses,
         )
 
+        # Plot and save final learning curves
         plot_learning_curves(
             train_losses,
             val_losses,
-            os.path.join(lora_checkpoints_dir, "lora_learning_curves.png"),
+            os.path.join(lora_checkpoints_dir, "lora_learning_curves_final.png"),
         )
 
-        # Finally, save only the LoRA weights
-        save_lora_weights(
-            model, os.path.join(lora_checkpoints_dir, "lora_weights_final.pt")
+        # Save the final LoRA weights (just the fine-tuned parameters)
+        final_lora_path = os.path.join(lora_checkpoints_dir, "lora_weights_final.pt")
+        save_lora_weights(model, final_lora_path)
+
+        # Also save a separate copy as latest for potential resuming
+        latest_path = os.path.join(lora_checkpoints_dir, "lora_checkpoint_latest.pt")
+        save_checkpoint(
+            model,
+            optimizer,
+            scheduler,
+            start_epoch + num_epochs,
+            train_losses[-1],
+            val_losses[-1],
+            train_losses,
+            val_losses,
+            latest_path,
         )
-        print("Training completed successfully")
+
+        print("\n--- Training completed successfully ---\n")
+        print(f"Final LoRA weights saved to: {final_lora_path}")
+        print(f"Best validation loss: {min(val_losses):.4f}")
+
+        # Quick verification of learned LoRA weights
+        print("\nVerifying LoRA parameter statistics:")
+        lora_norm_stats = {}
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                param_norm = torch.norm(param).item()
+                if "lora_A" in name:
+                    category = "lora_A"
+                elif "lora_B" in name:
+                    category = "lora_B"
+                else:
+                    category = "other"
+
+                if category not in lora_norm_stats:
+                    lora_norm_stats[category] = []
+                lora_norm_stats[category].append(param_norm)
+
+        for category, norms in lora_norm_stats.items():
+            avg_norm = sum(norms) / len(norms)
+            print(
+                f"  {category}: avg norm = {avg_norm:.4f}, "
+                f"min = {min(norms):.4f}, max = {max(norms):.4f}"
+            )
 
     except Exception as exc:
-        print(f"Training error: {str(exc)}")
+        print(f"\nTraining error: {str(exc)}")
         import traceback
-
         traceback.print_exc()
 
 
 if __name__ == "__main__":
     main()
-
